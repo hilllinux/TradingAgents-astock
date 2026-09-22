@@ -560,6 +560,15 @@ def _collect_sections(
     """
     sections: list[tuple[str, str]] = []
 
+    quality = final_state.get("data_quality_summary", "")
+    if quality:
+        text = _strip_think(str(quality))
+        if ticker:
+            text = normalize_stock_mentions(text, ticker, final_state)
+        sections.append(("数据质量审核与限制", "后文保留分析与辩论原文供追溯，不代表全部论据已获采信；审核指出的未解决冲突不得用于决策。\n\n" + text))
+    else:
+        sections.append(("数据质量审核与限制", "未保存或未提供审核记录，不得视为审核通过。"))
+
     for key, title in _REPORT_SECTIONS:
         content = final_state.get(key, "")
         if content:

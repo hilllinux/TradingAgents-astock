@@ -71,21 +71,24 @@ class ResearchPlan(BaseModel):
         description=(
             "The investment recommendation. Exactly one of Buy / Overweight / "
             "Hold / Underweight / Sell. Reserve Hold for situations where the "
-            "evidence on both sides is genuinely balanced; otherwise commit to "
-            "the side with the stronger arguments."
+            "evidence is balanced or insufficient, explicitly distinguishing "
+            "those reasons; otherwise follow the stronger reliable evidence."
         ),
     )
     rationale: str = Field(
         description=(
             "Conversational summary of the key points from both sides of the "
             "debate, ending with which arguments led to the recommendation. "
-            "Speak naturally, as if to a teammate."
+            "Include accepted evidence, excluded or unresolved claims, the "
+            "strongest counterargument, and confidence with reasons."
         ),
     )
     strategic_actions: str = Field(
         description=(
             "Concrete steps for the trader to implement the recommendation, "
-            "consistent with the rating."
+            "consistent with the rating, focusing on verification needs and "
+            "observable conditions for changing it. No entry, stop-loss, "
+            "target-price or position-size levels."
         ),
     )
 
@@ -127,7 +130,8 @@ class TraderProposal(BaseModel):
         description=(
             "The case for this action, anchored in the analysts' reports and "
             "the research plan. Two to four sentences. Do not quote specific "
-            "entry, stop-loss or position-size levels."
+            "entry, stop-loss or position-size levels. Include material "
+            "limitations, confidence and conditions for changing the direction."
         ),
     )
 
@@ -175,14 +179,17 @@ class PortfolioDecision(BaseModel):
         description=(
             "A concise summary of what drove the rating and the main "
             "considerations on each side. Two to four sentences. Do not quote "
-            "specific entry, stop-loss, position-size or target-price levels."
+            "specific entry, stop-loss, position-size or target-price levels. "
+            "State confidence and critical evidence limitations."
         ),
     )
     investment_thesis: str = Field(
         description=(
             "Detailed reasoning anchored in specific evidence from the analysts' "
             "debate. If prior lessons are referenced in the prompt context, "
-            "incorporate them; otherwise rely solely on the current analysis."
+            "incorporate them; otherwise rely solely on the current analysis. "
+            "Explain conflicts, excluded claims, reliable supporting evidence, "
+            "the strongest counterargument and observable rating-change conditions."
         ),
     )
     time_horizon: Optional[str] = Field(

@@ -11,6 +11,8 @@ back gracefully to free-text generation.
 from __future__ import annotations
 
 from tradingagents.agents.schemas import PortfolioDecision, render_pm_decision
+from tradingagents.agents.utils.research_context import build_research_context
+from tradingagents.agents.utils.research_prompts import DECISION_RULES
 from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
     get_language_instruction,
@@ -76,7 +78,7 @@ def create_portfolio_manager(llm):
 **Rating Scale** (use exactly one):
 - **Buy**: Strong conviction to enter or add to position
 - **Overweight**: Favorable outlook, gradually increase exposure
-- **Hold**: Maintain current position, no action needed
+- **Hold**: Balanced evidence or insufficient evidence for a directional view; state which applies
 - **Underweight**: Reduce exposure, take partial profits
 - **Sell**: Exit position or avoid entry
 
@@ -87,9 +89,14 @@ def create_portfolio_manager(llm):
 **Risk Analysts Debate History:**
 {history}
 
+{build_research_context(state)}
+
 ---
 
-Be decisive and ground every conclusion in specific evidence from the analysts.{_NO_LEVELS_RULE}{get_language_instruction()}"""
+{DECISION_RULES}
+In executive_summary, state the rating's evidence basis and confidence, including critical limitations.
+In investment_thesis, explain unresolved conflicts, excluded claims, accepted evidence, the strongest counterargument and observable conditions for changing the rating.
+Ground conclusions in evidence rather than pressure to be decisive.{_NO_LEVELS_RULE}{get_language_instruction()}"""
 
         final_trade_decision = invoke_structured_or_freetext(
             structured_llm,

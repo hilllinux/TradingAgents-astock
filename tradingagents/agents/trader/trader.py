@@ -7,6 +7,8 @@ import functools
 from langchain_core.messages import AIMessage
 
 from tradingagents.agents.schemas import TraderProposal, render_trader_proposal
+from tradingagents.agents.utils.research_context import build_research_context
+from tradingagents.agents.utils.research_prompts import DECISION_RULES
 from tradingagents.agents.utils.agent_utils import build_instrument_context, get_language_instruction
 from tradingagents.agents.utils.structured import (
     bind_structured,
@@ -29,20 +31,7 @@ def create_trader(llm):
         instrument_context = build_instrument_context(company_name)
         investment_plan = state["investment_plan"]
 
-        # Collect A-stock specific analyst reports
-        policy_report = state.get("policy_report", "")
-        hot_money_report = state.get("hot_money_report", "")
-        lockup_report = state.get("lockup_report", "")
-
-        # Build optional A-stock context block
-        astock_context_parts = []
-        if policy_report:
-            astock_context_parts.append(f"Policy Analysis Report:\n{policy_report}")
-        if hot_money_report:
-            astock_context_parts.append(f"Hot Money / Capital Flow Report:\n{hot_money_report}")
-        if lockup_report:
-            astock_context_parts.append(f"Lockup Expiry / Insider Reduction Report:\n{lockup_report}")
-        astock_context = "\n\n".join(astock_context_parts)
+        research_context = build_research_context(state)
 
         messages = [
             {
@@ -66,6 +55,8 @@ def create_trader(llm):
                     "Anchor your reasoning in the analysts' reports and the research plan. "
                     f"{_NO_LEVELS_INSTRUCTION} "
                     "（以上参数仅供技术研究参考，不构成投资建议）"
+                    + DECISION_RULES
+                    + "In reasoning, concisely state the accepted evidence, material limitations, confidence and what would change the direction."
                 ),
             },
             {
@@ -76,7 +67,7 @@ def create_trader(llm):
                     f"specialists), here is an investment plan for {company_name}.\n\n"
                     f"{instrument_context}\n\n"
                     f"Proposed Investment Plan:\n{investment_plan}\n\n"
-                    + (f"Additional A-Stock Analyst Context:\n{astock_context}\n\n" if astock_context else "")
+                    + f"{research_context}\n\n"
                     + "Leverage these insights to craft the transaction view."
                     + get_language_instruction()
                 ),

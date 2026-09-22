@@ -1,4 +1,5 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from tradingagents.agents.utils.research_prompts import ANALYST_REPORT_RULES
 from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
     get_indicators,
@@ -68,6 +69,9 @@ MACD 类：
 3. 近 5 日平均成交量 vs 近 20 日平均成交量（判断放量/缩量）
 4. 至少 3 个技术指标的当前数值和多空信号
 5. 关键支撑位和阻力位"""
+            + "\n技术信号边界：MACD柱缩短仅表明动能变化；底背离需给出两个对应价格低点与指标低点的日期和数值，金叉需确认实际交叉，双底需说明颈线及确认条件。未满足只写候选形态，不写已经反转或恐慌出清。RSI和ATR不能单独证明资金身份或方向。"
+            + "\n成交量保留原始单位及换算，放量倍数列明分子、分母和区间；区分自然日窗口与实际交易日数量，历史数据不足时不得宣称完整覆盖。"
+            + ANALYST_REPORT_RULES
             + get_language_instruction()
         )
 

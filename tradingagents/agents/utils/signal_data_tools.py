@@ -48,19 +48,20 @@ def get_hot_stocks(
 def get_northbound_flow(
     curr_date: Annotated[str, "Date in YYYY-MM-DD format"],
     include_history: Annotated[
-        bool, "Include historical daily data (last 20 trading days)"
+        bool, "Include verification status of the legacy historical cache"
     ] = False,
 ) -> str:
     """
-    Retrieve northbound capital flow (沪深股通) data.
-    Realtime: minute-level cumulative net buying for HGT + SGT.
-    History (optional): daily-level data for trend analysis.
+    Check availability and provenance of northbound-related (沪深股通) data.
+    The current undocumented source is quarantined: its raw amounts and old
+    cache are not verified net buying, so only validation status is returned.
+    Historical analysis never fetches today's minute feed as historical data.
     Uses the configured signal_data vendor.
     Args:
         curr_date (str): Date in YYYY-MM-DD format
-        include_history (bool): Whether to include historical daily data
+        include_history (bool): Include historical-cache verification status
     Returns:
-        str: Northbound capital flow report with bullish/bearish signal
+        str: Verification limitations; no unverified amounts or directional signal
     """
     return route_to_vendor("get_northbound_flow", curr_date, include_history)
 

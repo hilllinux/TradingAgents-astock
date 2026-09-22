@@ -33,6 +33,8 @@ import pandas as pd
 import requests as _requests
 
 from .utils import safe_ticker_component
+from . import financial_reports
+from .market_metrics import summarize_prices
 
 logger = logging.getLogger(__name__)
 
@@ -502,26 +504,49 @@ def _tencent_quote(codes: list[str]) -> dict[str, dict]:
             continue
         key = line.split("=")[0].split("_")[-1]
         vals = line.split('"')[1].split("~")
-        if len(vals) < 53:
+        if len(vals) < 54:
             continue
         code = key[2:]  # strip sh/sz/bj prefix
+        def quote_number(index):
+            return financial_reports.number(vals[index]) if index < len(vals) else None
+
         result[code] = {
             "name": vals[1],
-            "price": float(vals[3]) if vals[3] else 0,
-            "last_close": float(vals[4]) if vals[4] else 0,
-            "open": float(vals[5]) if vals[5] else 0,
-            "change_pct": float(vals[32]) if vals[32] else 0,
-            "high": float(vals[33]) if vals[33] else 0,
-            "low": float(vals[34]) if vals[34] else 0,
-            "turnover_pct": float(vals[38]) if vals[38] else 0,
-            "pe_ttm": float(vals[39]) if vals[39] else 0,
-            "mcap_yi": float(vals[44]) if vals[44] else 0,
-            "float_mcap_yi": float(vals[45]) if vals[45] else 0,
-            "pb": float(vals[46]) if vals[46] else 0,
-            "limit_up": float(vals[47]) if vals[47] else 0,
-            "limit_down": float(vals[48]) if vals[48] else 0,
-            "pe_static": float(vals[52]) if vals[52] else 0,
+            "quote_time": vals[30],
+            "price": quote_number(3),
+            "last_close": quote_number(4),
+            "open": quote_number(5),
+            "change_pct": quote_number(32),
+            "high": quote_number(33),
+            "low": quote_number(34),
+            "turnover_pct": quote_number(38),
+            "pe_ttm": quote_number(39),
+            "mcap_yi": quote_number(45),
+            "float_mcap_yi": quote_number(44),
+            "pb": quote_number(46),
+            "limit_up": quote_number(47),
+            "limit_down": quote_number(48),
+            "pe_dynamic": quote_number(52),
+            "pe_static": quote_number(53),
+            "float_shares": quote_number(72),
+            "total_shares": quote_number(73),
         }
+        quote = result[code]
+        conflicts = []
+        total, floating = quote["mcap_yi"], quote["float_mcap_yi"]
+        if total is not None and floating is not None and floating > total + 0.02:
+            conflicts.append("流通市值高于总市值，两者停用")
+            quote["mcap_yi"] = quote["float_mcap_yi"] = None
+        for cap_key, shares_key in (("mcap_yi", "total_shares"), ("float_mcap_yi", "float_shares")):
+            cap, shares, price = quote[cap_key], quote[shares_key], quote["price"]
+            if cap is not None and cap <= 0:
+                conflicts.append(f"{cap_key}不是有效正数，停用")
+                quote[cap_key] = None
+            elif cap is not None and shares is not None and price is not None:
+                if shares <= 0 or price <= 0 or abs(cap - shares * price / 1e8) > 0.02:
+                    conflicts.append(f"{cap_key}与价格×股本不符，停用")
+                    quote[cap_key] = None
+        quote["validation_issues"] = conflicts
     return result
 
 
@@ -866,6 +891,8 @@ def get_stock_data(
     if supplemented:
         data_source = f"{data_source} + sina HTTP supplement"
 
+    metrics = summarize_prices(df, end_date)
+
     # Filter by date range
     start_dt = pd.to_datetime(start_date)
     end_dt = pd.to_datetime(end_date)
@@ -893,7 +920,7 @@ def get_stock_data(
         f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
     )
 
-    return header + csv_out
+    return header + metrics + "\n\n## 请求区间原始OHLCV\n" + csv_out
 
 
 # ---- 2. get_indicators ----
@@ -1010,8 +1037,13 @@ def get_fundamentals(
                         f"Change: {q['change_pct']}%",
                         f"Limit Up: {q['limit_up']}",
                         f"Limit Down: {q['limit_down']}",
+                        f"Quote timestamp (source): {q.get('quote_time', 'unknown')}",
+                        f"Total shares (股): {q.get('total_shares')}",
+                        f"Float shares (股): {q.get('float_shares')}",
+                        "None表示缺失或校验失败，不是零；静态PE不混用年化动态PE。",
                     ]
                 )
+                lines.extend(f"[数据冲突] {issue}" for issue in q.get("validation_issues", []))
         except Exception as e:
             logger.warning("Tencent quote failed for %s: %s", code, e)
 
@@ -1176,7 +1208,7 @@ def _get_financial_report_sina(
     }
     source_type = _report_type_map.get(report_type, "lrb")
 
-    prefix = "sh" if code.startswith("6") else "sz"
+    prefix = _get_prefix(code)
     paper_code = f"{prefix}{code}"
     url = "https://quotes.sina.cn/cn/api/openapi.php/CompanyFinanceService.getFinanceReport2022"
     params = {
@@ -1189,25 +1221,62 @@ def _get_financial_report_sina(
     r = _requests.get(url, params=params, headers={"User-Agent": _UA}, timeout=15)
     d = r.json()
 
-    result = d.get("result", {}).get("data", {})
-    items = result.get(source_type, [])
-    if not isinstance(items, list) or not items:
-        return pd.DataFrame()
+    return financial_reports.parse_sina(d, report_type, freq, curr_date)
 
-    df = pd.DataFrame(items)
 
-    # Filter by curr_date
-    if curr_date and "报告日" in df.columns:
-        df["报告日"] = pd.to_datetime(df["报告日"], errors="coerce")
-        cutoff = pd.to_datetime(curr_date)
-        df = df[df["报告日"] <= cutoff]
-
-    # Filter by frequency (annual = month 12 reports only)
-    if freq.lower() == "annual" and "报告日" in df.columns:
-        months = pd.to_datetime(df["报告日"], errors="coerce").dt.month
-        df = df[months == 12]
-
-    return df.head(8)
+def _financial_statement_report(code, report_type, freq, curr_date):
+    cutoff = financial_reports.cutoff_date(curr_date)
+    lines = [
+        f"# {report_type} | {code} | 分析基准日 {cutoff}",
+        f"采集时间（北京时间）：{datetime.now(financial_reports.SHANGHAI).isoformat(timespec='seconds')}",
+        "金额单位：元；基本每股收益：元/股。空值为缺失，不补零。",
+        "资产负债表为合并期末数；利润表和现金流量表为合并年初至报告期末累计数。",
+        "Q2/H1不是第二季度单季；Q4可能是全年累计。单季须在同一来源、同一口径下相减。",
+        "按报告期和披露日双重过滤；当前数据源可能重述历史，不能证明历史原始版本。",
+    ]
+    primary = pd.DataFrame()
+    secondary = pd.DataFrame()
+    try:
+        primary = _get_financial_report_sina(code, report_type, freq, cutoff)
+    except Exception as exc:
+        lines.append(f"[数据缺失] 新浪读取失败: {type(exc).__name__}；不是公司未披露。")
+    if financial_reports.hithink_enabled():
+        try:
+            secondary = financial_reports.hithink_statements(code, _get_prefix(code), report_type, freq, cutoff)
+        except Exception as exc:
+            lines.append(f"[数据缺失] HiThink读取失败: {type(exc).__name__}；不替换或补零。")
+    else:
+        lines.append("[补充来源未启用] HiThink未启用或当前服务进程没有凭据。")
+    for name, frame in (("新浪财经", primary), ("HiThink Financial-API", secondary)):
+        lines.append(f"\n## 来源：{name}")
+        if frame.attrs.get("rejected_rows"):
+            lines.append(f"[数据限制] {frame.attrs['rejected_rows']}条记录因日期、币种或合并口径缺失/不符而排除。")
+        if frame.empty:
+            lines.append("[数据缺失] 没有在分析基准日前已披露且口径可核验的记录。")
+        else:
+            lines.append(frame.to_csv(index=False, na_rep="NA"))
+    reconciliation = financial_reports.reconcile(primary, secondary)
+    lines.append("\n## 双源交叉核验\n" + reconciliation)
+    if report_type == "资产负债表":
+        if "[数据冲突]" in reconciliation:
+            lines.append("存在未解决数值冲突，本次不生成资产负债率或补充指标，先核对公告。")
+            return "\n".join(lines)
+        for name, frame in (("新浪", primary), ("HiThink", secondary)):
+            if frame.empty:
+                continue
+            latest = frame.iloc[0]
+            assets = financial_reports.number(latest.get("资产总计"))
+            debt = financial_reports.number(latest.get("负债合计"))
+            if assets is not None and assets > 0 and debt is not None:
+                lines.append(f"[计算值/{name}/{latest['报告日']}] 资产负债率={debt:g}/{assets:g}×100%={debt/assets*100:.4f}%；负债合计不是有息负债。")
+        if not secondary.empty and cutoff == financial_reports.cutoff_date(None):
+            try:
+                lines.append(financial_reports.hithink_indicators(code, _get_prefix(code), secondary.iloc[0]))
+            except Exception as exc:
+                lines.append(f"[数据缺失] HiThink指标读取失败: {type(exc).__name__}")
+        elif not secondary.empty:
+            lines.append("[数据限制] 历史分析不调用无独立披露时间/历史版本的财务指标接口；可从已披露报表计算的指标另列。")
+    return "\n".join(lines)
 
 
 def get_balance_sheet(
@@ -1219,20 +1288,7 @@ def get_balance_sheet(
     code = _normalize_ticker(ticker)
 
     try:
-        df = _get_financial_report_sina(code, "资产负债表", freq, curr_date)
-
-        if df.empty:
-            return f"No balance sheet data found for A-stock '{code}'"
-
-        csv_string = df.to_csv(index=False)
-
-        header = f"# Balance Sheet for {code} (A-stock, {freq})\n"
-        header += "# Data source: sina direct HTTP\n"
-        header += (
-            f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-        )
-
-        return header + csv_string
+        return _financial_statement_report(code, "资产负债表", freq, curr_date)
 
     except Exception as e:
         return f"Error retrieving balance sheet for {code}: {str(e)}"
@@ -1250,20 +1306,7 @@ def get_cashflow(
     code = _normalize_ticker(ticker)
 
     try:
-        df = _get_financial_report_sina(code, "现金流量表", freq, curr_date)
-
-        if df.empty:
-            return f"No cash flow data found for A-stock '{code}'"
-
-        csv_string = df.to_csv(index=False)
-
-        header = f"# Cash Flow for {code} (A-stock, {freq})\n"
-        header += "# Data source: sina direct HTTP\n"
-        header += (
-            f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-        )
-
-        return header + csv_string
+        return _financial_statement_report(code, "现金流量表", freq, curr_date)
 
     except Exception as e:
         return f"Error retrieving cash flow for {code}: {str(e)}"
@@ -1281,20 +1324,7 @@ def get_income_statement(
     code = _normalize_ticker(ticker)
 
     try:
-        df = _get_financial_report_sina(code, "利润表", freq, curr_date)
-
-        if df.empty:
-            return f"No income statement data found for A-stock '{code}'"
-
-        csv_string = df.to_csv(index=False)
-
-        header = f"# Income Statement for {code} (A-stock, {freq})\n"
-        header += "# Data source: sina direct HTTP\n"
-        header += (
-            f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-        )
-
-        return header + csv_string
+        return _financial_statement_report(code, "利润表", freq, curr_date)
 
     except Exception as e:
         return f"Error retrieving income statement for {code}: {str(e)}"
@@ -1788,72 +1818,112 @@ def get_hot_stocks(
 
 
 def _northbound_cache_path() -> str:
-    """Path to local CSV cache for northbound daily close snapshots."""
+    """Locate the legacy, unverified CSV without creating or changing it."""
     from .config import get_config
 
     config = get_config()
     cache_dir = config.get(
         "data_cache_dir", os.path.expanduser("~/.tradingagents/cache")
     )
-    os.makedirs(cache_dir, exist_ok=True)
     return os.path.join(cache_dir, "northbound_daily.csv")
 
 
-def _save_northbound_snapshot(date_str: str, hgt: float, sgt: float) -> None:
-    """Append today's northbound close to local CSV cache (dedup by date)."""
-    import csv
-
-    path = _northbound_cache_path()
-    existing: dict[str, tuple[str, str]] = {}
-    if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            reader = csv.reader(f)
-            next(reader, None)
-            for row in reader:
-                if len(row) >= 3:
-                    existing[row[0]] = (row[1], row[2])
-    existing[date_str] = (f"{hgt:.2f}", f"{sgt:.2f}")
-    sorted_dates = sorted(existing.keys())
-    with open(path, "w", encoding="utf-8", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["date", "hgt", "sgt"])
-        for d in sorted_dates:
-            writer.writerow([d, existing[d][0], existing[d][1]])
+def _northbound_today() -> date:
+    return datetime.now(timezone(timedelta(hours=8))).date()
 
 
-def _load_northbound_history(n: int = 20) -> list[tuple[str, float, float]]:
-    """Load last N days of northbound close data from local cache."""
-    import csv
+def _inspect_northbound_payload(payload, analysis_date: date) -> list[str]:
+    """Check structure without promoting undocumented fields to financial data."""
+    if not isinstance(payload, dict):
+        return ["接口返回不是对象，无法核验数据结构。"]
 
-    path = _northbound_cache_path()
-    if not os.path.exists(path):
-        return []
-    rows: list[tuple[str, float, float]] = []
-    with open(path, "r", encoding="utf-8") as f:
-        reader = csv.reader(f)
-        next(reader, None)
-        for row in reader:
-            if len(row) >= 3:
-                try:
-                    rows.append((row[0], float(row[1]), float(row[2])))
-                except ValueError:
-                    continue
-    return rows[-n:]
+    findings = []
+    date_labels = [payload[key] for key in ("date", "trade_date") if key in payload]
+    if not date_labels:
+        findings.append("缺少上游数据日期；分钟时间和采集日期不能代替交易日期。")
+    for label in date_labels:
+        try:
+            if not isinstance(label, str) or not _re.fullmatch(r"\d{4}-\d{2}-\d{2}|\d{8}", label):
+                raise ValueError("unknown date format")
+            reported_date = datetime.strptime(label, "%Y-%m-%d" if "-" in label else "%Y%m%d").date()
+        except ValueError:
+            findings.append("上游日期标签缺失或格式无法识别，不能推测为分析日。")
+            continue
+        if reported_date != analysis_date:
+            findings.append(f"上游日期标签 {reported_date.isoformat()} 与分析日不一致，禁止混用。")
+        else:
+            findings.append("上游日期标签与分析日相符，但标签含义仍缺少来源文档核验。")
+
+    unit = payload.get("unit")
+    if not isinstance(unit, str) or unit not in ("元", "万元", "亿元"):
+        findings.append("单位缺失或无法识别，禁止默认当作亿元。")
+    else:
+        findings.append("上游提供了单位标签，但未核验该单位是否适用于hgt/sgt字段。")
+
+    times = payload.get("time")
+    hgt = payload.get("hgt")
+    sgt = payload.get("sgt")
+    series = (times, hgt, sgt)
+    if not all(isinstance(values, list) and values for values in series):
+        findings.append("time/hgt/sgt通道缺失、为空或格式错误；缺失不能补零。")
+    elif len(times) != len(hgt) or len(times) != len(sgt):
+        findings.append("time/hgt/sgt数组长度不一致，禁止错位相加。")
+    else:
+        for values in (hgt, sgt):
+            try:
+                if any(isinstance(value, bool) or not math.isfinite(float(value)) for value in values):
+                    raise ValueError("non-finite flow value")
+            except (TypeError, ValueError, OverflowError):
+                findings.append("通道包含非数值或非有限数值，不能生成资金统计。")
+                break
+    findings.append("hgt/sgt业务定义和统计范围未核验，不能认定为北向净买入；接口自带标签不构成来源证明。")
+    return findings
 
 
 def get_northbound_flow(
     curr_date: Annotated[str, "Date YYYY-MM-DD"],
     include_history: Annotated[
-        bool, "Include historical daily data (last 20 trading days)"
+        bool, "Include verification status of the legacy historical cache"
     ] = False,
 ) -> str:
-    """Get northbound capital flow (沪深股通) from 同花顺 hsgtApi.
+    """Return verification status for the undocumented northbound endpoint.
 
-    Realtime: minute-level cumulative net buying for HGT(沪股通) + SGT(深股通).
-    History: self-cached daily close snapshots (upstream APIs stopped updating
-    northbound history since 2024-08).
+    Its hgt/sgt semantics, units and observation dates are not independently
+    established. Raw amounts and legacy cache values are therefore withheld
+    from research, rather than relabelled as current net buying. Structural
+    checks alone cannot enable the feed; a documented source adapter is needed.
     """
     import requests
+
+    try:
+        if not isinstance(curr_date, str) or not _re.fullmatch(r"\d{4}-\d{2}-\d{2}", curr_date):
+            raise ValueError("invalid analysis date")
+        analysis_date = date.fromisoformat(curr_date)
+    except ValueError:
+        return "[数据缺失: 北向数据分析日期无效，必须为YYYY-MM-DD]；禁止推断资金方向。"
+
+    lines = [
+        f"# 北向数据核验状态（分析日 {curr_date}）",
+        "[数据缺失: 可核验的北向净买入数据] [待核验: 同花顺hsgtApi字段定义、单位及数据日期]",
+        "不可用于方向判断：不输出未核验金额，不补零，不生成多空信号，也不写入日度缓存。",
+        "不得根据全市场资金推断目标个股买卖；当前缺失不是利好或利空。",
+    ]
+    if include_history:
+        if os.path.exists(_northbound_cache_path()):
+            lines.append(
+                "历史缓存已隔离：旧CSV按采集日记账，缺少可核验的数据日期、单位、字段定义与来源版本；"
+                "保留原文件但不参与历史统计，不以缓存日期证明时点有效。"
+            )
+        else:
+            lines.append("历史数据缺失：没有经核验的日度缓存；不会用当前接口填补历史。")
+
+    today = _northbound_today()
+    if analysis_date < today:
+        lines.append("历史分析禁止调用当前分钟接口，避免把今天数据当成历史事实；无已核验的历史数据源。")
+        return "\n".join(lines)
+    if analysis_date > today:
+        lines.append("分析日尚未到达，不获取或构造未来资金数据。")
+        return "\n".join(lines)
 
     hsgt_headers = {
         "User-Agent": (
@@ -1864,83 +1934,15 @@ def get_northbound_flow(
         "Referer": "https://data.hexin.cn/",
     }
 
-    lines = [
-        f"# Northbound Capital Flow ({curr_date})",
-        "# Source: 同花顺 hsgtApi (沪深股通) + local cache",
-        "",
-    ]
-
-    hgt_close = 0.0
-    sgt_close = 0.0
-    got_realtime = False
-
     try:
         url_rt = "https://data.hexin.cn/market/hsgtApi/method/dayChart/"
-        r = requests.get(url_rt, headers=hsgt_headers, timeout=10)
-        d = r.json()
-
-        times = d.get("time", [])
-        hgt = d.get("hgt", [])
-        sgt = d.get("sgt", [])
-
-        if times:
-            lines.append("## Realtime (cumulative net buying, 亿元)")
-            n = len(times)
-            start_idx = max(0, n - 10)
-            for i in range(start_idx, n):
-                t = times[i]
-                h = hgt[i] if i < len(hgt) else "N/A"
-                s = sgt[i] if i < len(sgt) else "N/A"
-                lines.append(f"  {t}: HGT={h} SGT={s}")
-
-            hgt_close = float(hgt[-1]) if hgt else 0
-            sgt_close = float(sgt[-1]) if sgt else 0
-            total = hgt_close + sgt_close
-            lines.append(
-                f"\nClose: HGT(沪股通)={hgt_close:.2f}亿 "
-                f"SGT(深股通)={sgt_close:.2f}亿 "
-                f"Total={total:.2f}亿"
-            )
-            if total > 0:
-                lines.append("Signal: Net northbound INFLOW (bullish)")
-            elif total < 0:
-                lines.append("Signal: Net northbound OUTFLOW (bearish)")
-            got_realtime = True
-        else:
-            lines.append("No realtime data (non-trading hours or holiday)")
-
-        if got_realtime:
-            today_str = datetime.now().strftime("%Y-%m-%d")
-            _save_northbound_snapshot(today_str, hgt_close, sgt_close)
-
-        if include_history:
-            history = _load_northbound_history(20)
-            if history:
-                lines.append("\n## Historical Daily Close (local cache, 亿元)")
-                lines.append("Date       | HGT(沪股通) | SGT(深股通) | Total")
-                for date, h, s in history:
-                    lines.append(f"  {date}: HGT={h:.2f} SGT={s:.2f} Total={h + s:.2f}")
-                avg_total = sum(h + s for _, h, s in history) / len(history)
-                lines.append(
-                    f"\n{len(history)}-day avg net flow: {avg_total:.2f}亿"
-                )
-                if got_realtime:
-                    today_total = hgt_close + sgt_close
-                    diff = today_total - avg_total
-                    lines.append(
-                        f"Today vs avg: {'+' if diff >= 0 else ''}{diff:.2f}亿 "
-                        f"({'above' if diff >= 0 else 'below'} average)"
-                    )
-            else:
-                lines.append(
-                    "\n## Historical Daily: No cached data yet. "
-                    "History accumulates automatically with each call."
-                )
-
-        return "\n".join(lines)
-
-    except Exception as e:
-        return f"Error fetching northbound flow: {str(e)}"
+        response = requests.get(url_rt, headers=hsgt_headers, timeout=10)
+        response.raise_for_status()
+        findings = _inspect_northbound_payload(response.json(), analysis_date)
+        lines.extend(f"- {finding}" for finding in findings)
+    except Exception as exc:
+        lines.append(f"接口核验失败: {type(exc).__name__}；不回退到未核验缓存。")
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -2072,9 +2074,12 @@ def get_fund_flow(
         }
         klines = []
         if not historical:
-            r = _em_get(url_rt, params=params_rt, timeout=10)
-            d = r.json()
-            klines = d.get("data", {}).get("klines", [])
+            try:
+                r = _em_get(url_rt, params=params_rt, timeout=10)
+                d = r.json()
+                klines = (d.get("data") or {}).get("klines", [])
+            except Exception as exc:
+                lines.append(f"[数据缺失] 当日分钟资金流请求失败: {type(exc).__name__}；仍尝试历史接口。")
 
         if klines:
             lines.append(
@@ -2095,19 +2100,19 @@ def get_fund_flow(
             if len(last_parts) >= 2:
                 main_net = float(last_parts[1])
                 lines.append(
-                    f"\nClose: 主力净流入={main_net/1e4:.0f}万元"
+                    f"\n最新返回时间{last_parts[0]}: 订单分类主力净流入={main_net/1e4:.0f}万元"
                 )
                 if main_net > 0:
                     lines.append(
-                        "Signal: Net main force INFLOW (bullish)"
+                        "订单分类净流入为正；不等于确认机构吸筹或看多信号。"
                     )
                 elif main_net < 0:
                     lines.append(
-                        "Signal: Net main force OUTFLOW (bearish)"
+                        "订单分类净流入为负；不等于确认机构撤退或看空信号。"
                     )
         else:
             lines.append(
-                "No realtime fund flow (non-trading hours or holiday)"
+                "[数据缺失] 未取得可用分钟资金流；不能据此判断流量为零或市场休市。"
             )
 
         # Historical daily fund flow (push2his)
@@ -2133,7 +2138,7 @@ def get_fund_flow(
             }
             rh = _em_get(url_hist, params=params_hist, timeout=10)
             dh = rh.json()
-            hist_klines = dh.get("data", {}).get("klines", [])
+            hist_klines = (dh.get("data") or {}).get("klines", [])
 
             # 逐行按分析日截断：接口返回的是"从今天回溯 20 个交易日"，
             # 在历史日期上直接打印等于把未来的资金流喂给模型（未来函数）。
@@ -2180,7 +2185,7 @@ def get_fund_flow(
         return "\n".join(lines)
 
     except Exception as e:
-        return f"Error fetching fund flow for {code}: {str(e)}"
+        return "\n".join(lines) + f"\n[数据缺失] 资金流后续处理失败: {type(e).__name__}；保留已取得的数据，缺失部分不补零。"
 
 
 # ---------------------------------------------------------------------------

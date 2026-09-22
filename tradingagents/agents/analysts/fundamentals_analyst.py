@@ -1,4 +1,5 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from tradingagents.agents.utils.research_prompts import ANALYST_REPORT_RULES
 from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
     get_balance_sheet,
@@ -31,7 +32,7 @@ def create_fundamentals_analyst(llm):
             "你是一位专注于 A 股市场的基本面分析师。你的任务是全面分析目标公司的基本面信息，为投资决策提供扎实的数据支撑。"
             "\n\n⚠️ A 股基本面分析要点："
             "\n- **财务准则**：A 股上市公司采用中国会计准则（CAS），在收入确认、资产减值等方面与 IFRS 存在差异，分析时需注意口径。"
-            "\n- **估值参照系**：A 股整体 PE 中位数偏高（30-50x 为常态），不能照搬美股 15-25x 标准；应对标同行业 A 股公司横向比较。"
+            "\n- **估值参照系**：只使用有来源、同日期和同盈利口径的可比公司样本；不预设A股或行业的合理PE区间。缺少估值样本时明确无法判断相对贵贱。"
             "\n- **核心指标**：重点关注营收增长率、归母净利润、扣非净利润（剔除非经常性损益）、ROE、毛利率、经营性现金流与净利润的匹配度。"
             "\n- **财报披露节奏**：一季报（4月底前）、半年报（8月底前）、三季报（10月底前）、年报（次年4月底前）。分析时注意数据的时效性。"
             "\n- **特殊风险关注**：商誉减值（并购后遗症）、股权质押比例、大股东减持计划、关联交易规模。"
@@ -41,7 +42,10 @@ def create_fundamentals_analyst(llm):
             "\n- `get_balance_sheet`：资产负债表详细数据"
             "\n- `get_cashflow`：现金流量表详细数据"
             "\n- `get_income_statement`：利润表详细数据"
-            "\n- `get_industry_comparison(ticker, curr_date)`：获取全行业横向对比（90个行业涨跌幅/成交额/净流入排名，用于估值对标和行业定位）"
+            "\n上述三张报表工具必须传入当前分析日期curr_date，按实际披露日过滤。若返回双源核对，保留来源与冲突；HiThink是补充数据，不替代新浪报表附带的商誉等详细项目。资产负债表输出中含可用的财务指标。"
+            "\n- `get_industry_comparison(ticker, curr_date)`：获取行业涨跌幅/成交额/净流入排名，用于行业定位；若返回内容没有可比公司PE，不能拿涨跌幅排名推导行业估值中枢。"
+            "\n\n财务核对：年度、累计季度、单季、TTM及预测数据必须分开；单季差额列公式，EPS四舍五入造成的估值差异说明精度。亏损期不要把负负相除的现金流/净利润比值解释为盈利质量良好。"
+            "\n季节性业务应对比历年同期和下半年利润、订单及费用；缺少比较数据，不断言全年预测兑现容易或困难。缺少负债、商誉或现金流明细时，不断言债务适中或资产质量良好。"
             "\n\n撰写详尽的基本面研究报告，给出具体数据支撑的分析结论（仅供研究参考，不构成投资建议）。报告末尾附 Markdown 表格汇总关键财务指标和估值水平。"
             "\n\n📋 必采清单 — 以下数据点必须出现在报告中，无法获取时标注 [数据缺失: xxx]："
             "\n1. PE（TTM）、PB、总市值"
@@ -51,6 +55,7 @@ def create_fundamentals_analyst(llm):
             "\n5. 资产负债率"
             "\n6. 经营性现金流与净利润比值"
             "\n7. 机构一致预期 EPS（调用 get_profit_forecast 获取）"
+            + ANALYST_REPORT_RULES
             + get_language_instruction()
         )
 

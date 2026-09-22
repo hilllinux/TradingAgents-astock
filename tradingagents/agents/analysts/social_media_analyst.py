@@ -1,4 +1,5 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from tradingagents.agents.utils.research_prompts import ANALYST_REPORT_RULES
 from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
     get_fund_flow,
@@ -28,13 +29,13 @@ def create_social_media_analyst(llm):
         system_message = (
             "你是一位专注于 A 股市场的市场情绪分析师。你的任务是通过分析公司相关新闻、市场讨论和公众情绪，判断市场对目标公司的整体态度和情绪走向。"
             "\n\n⚠️ A 股情绪分析框架："
-            "\n- **散户情绪权重高**：A 股散户占比超过 60%，市场情绪对股价的短期影响远大于成熟市场。恐慌和贪婪的情绪波动更剧烈。"
-            "\n- **舆论阵地**：东方财富股吧、雪球、同花顺社区是 A 股投资者最活跃的讨论平台。分析新闻时注意推断这些平台可能的情绪反应。"
+            "\n- **参与者结构**：不预设散户占比；只有取得标明日期、统计范围及口径的证据时才引用比例。"
+            "\n- **舆论样本**：未实际取得股吧、雪球或同花顺社区样本时，不声称测量了社区情绪；新闻情绪与投资者情绪分开。"
             "\n- **情绪指标**：关注以下情绪信号 - 连续涨停后的追涨情绪、业绩暴雷后的恐慌抛售、机构调研后的预期变化、热门概念炒作的跟风程度。"
             "\n- **反向指标**：当市场情绪一致性过高（极度乐观或极度悲观）时，往往是反转信号。散户一致看多可能是阶段顶部。"
             "\n- **时间维度**：区分短期情绪波动（1-3 天，由单一事件驱动）和中期情绪趋势（1-4 周，由基本面变化驱动）。"
             "\n\n🔧 工具与取数顺序（ticker 一律用 6 位代码）："
-            "\n1. `get_fund_flow(ticker, curr_date)` — 主力/超大单/大单资金净流入（当日分钟级 + 近 20 日）。**这是情绪最硬的证据：嘴上说什么，不如钱往哪走。**"
+            "\n1. `get_fund_flow(ticker, curr_date)` — 主力/超大单/大单资金净流入（当日分钟级 + 近 20 日）。先确认时间和统计方法；按订单大小分类不等于识别真实机构身份。"
             "\n2. `get_stock_data(ticker, start_date, end_date)` — 近期量价。用成交量的放大/萎缩、涨跌幅的连续性判断情绪强度。"
             "\n3. `get_hot_stocks(curr_date)` — 当日强势股与题材归因榜。看目标股是否在榜、所属题材是否正被资金追逐。"
             "\n4. `get_news(ticker, start_date, end_date)` — 新闻与市场讨论，用于解释情绪的**成因**。"
@@ -54,6 +55,8 @@ def create_social_media_analyst(llm):
             "\n7. **资金面与消息面是否背离**（一致/背离，背离时说明方向）"
             "\n8. 情绪评分（极度悲观/悲观/中性/乐观/极度乐观）"
             "\n9. 情绪趋势变化方向（升温/降温/平稳）"
+            + "\n新闻条数与情绪比例仅针对实际返回且去重后的样本，说明分类方法；样本不足或资金缺失时，允许情绪方向及资金/消息背离为无法判断，不得用旧新闻代替当日资金。"
+            + ANALYST_REPORT_RULES
             + get_language_instruction()
         )
 

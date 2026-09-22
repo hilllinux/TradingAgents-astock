@@ -1,3 +1,4 @@
+from tradingagents.agents.utils.research_prompts import DEBATE_RULES
 
 
 def create_bear_researcher(llm):
@@ -22,9 +23,9 @@ A-Share Bear Framework — prioritize these China-specific risk factors:
 - Policy Headwinds: Sudden regulatory crackdowns (e.g. industry rectification, antitrust), CSRC window guidance (窗口指导), sector-wide trading restrictions, or political risk signals
 - Lockup & Insider Selling: Upcoming lockup expiry dates with large overhang, controlling shareholders in pre-disclosure reduction windows, equity pledge liquidation risk
 - Hot Money Withdrawal (游资撤退): Volume divergence after limit-ups (放量滞涨), declining limit-up board count (连板断裂), sector rotation moving away from this theme
-- Valuation Bubble: PE far above 30x A-stock growth anchor with EPS unable to digest within 3 years, PEG > 2 indicating overpriced growth, retail-driven speculative premium
+- Valuation Risk: Test the earnings assumptions against dated, comparable valuation samples; do not declare a bubble from a fixed PE or PEG threshold
 - T+1 Trap: After a sharp rally, buyers today cannot exit until tomorrow — if sentiment reverses overnight or a gap-down opens, losses are locked in
-- Northbound Retreat: Net outflow from Stock Connect signals foreign institutions reducing exposure
+- Northbound Retreat: Use only flows with verified dates and definitions; market-wide outflows cannot establish selling in this stock
 
 General bear points:
 - Risks and Challenges: Market saturation, financial instability, or macroeconomic threats
@@ -47,7 +48,8 @@ Last bull argument: {current_response}
 
 ⚠️ If the data quality assessment flags any report as low-confidence (grade C/D/F), reduce your reliance on that report and note the data limitation in your argument.
 
-Deliver a compelling bear argument grounded in A-share market realities. Refute the bull's claims and demonstrate the risks of investing in this stock within the Chinese regulatory and market structure.
+Test whether the bearish case survives the strongest counterevidence; acknowledge when it does not.
+{DEBATE_RULES}
 """
 
         response = llm.invoke(prompt)

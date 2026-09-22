@@ -1,4 +1,5 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from tradingagents.agents.utils.research_prompts import ANALYST_REPORT_RULES
 from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
     get_concept_blocks,
@@ -38,7 +39,7 @@ def create_hot_money_tracker(llm):
             "你是一位专注于 A 股市场的游资与资金流向追踪分析师。你的核心任务是通过分析成交量异动、股东变化和市场新闻，追踪主力资金和游资的动向，判断短期资金博弈格局。"
             "\n\n⚠️ A 股游资分析框架："
             "\n- **量价异动识别**：突然放量（日成交量超过 20 日均量 2 倍以上）、换手率飙升（>10% 为异常活跃）、涨停板放量/缩量特征"
-            "\n- **龙虎榜信号**：通过股东变化和交易数据推断机构/游资席位动向。知名游资席位的买入是强势信号"
+            "\n- **龙虎榜信号**：只依据实际披露的席位、日期及买卖金额分析；股东排名变化不能替代席位证据，知名席位出现不保证后续上涨"
             "\n- **连板分析**：首板放量 vs 缩量的含义不同（放量代表分歧，缩量代表一致）；二板确认强度；三板以上进入「妖股」模式需特别谨慎"
             "\n- **板块资金流向**：资金从一个板块撤出往往流入另一个板块，跟踪轮动节奏有助于预判下一个热点"
             "\n- **大股东/机构行为**：大股东增减持、机构调研频次变化、定增/配股等融资行为反映内部人态度"
@@ -47,14 +48,14 @@ def create_hot_money_tracker(llm):
             "\n2. 调用 get_insider_transactions 获取股东/内部人交易记录，判断主力动向"
             "\n3. 调用 get_news 搜索游资、龙虎榜、主力资金相关新闻"
             "\n4. 调用 get_hot_stocks 获取当日强势股及题材归因（同花顺编辑部人工标注），识别热点板块轮动"
-            "\n5. 调用 get_northbound_flow 获取北向资金（沪深股通）实时分钟级流向，判断外资态度"
-            "\n6. 综合判断当前资金博弈格局：主力吸筹 / 主力出货 / 游资接力 / 散户主导"
+            "\n5. 调用 get_northbound_flow 获取接口数据，先核对实际数据日期、字段含义、单位及统计范围；无法核实时标注待核验，不根据工具附带的多空标签判断外资态度"
+            "\n6. 仅在具备对应证据时判断资金格局；单凭量价不能识别主力或散户，缺少席位或个股资金数据时写无法确认"
             "\n\n请使用以下工具："
             "\n- `get_stock_data`：获取 K 线和成交量数据"
             "\n- `get_news(ticker, start_date, end_date)`：搜索游资/资金流向相关新闻，ticker 必须使用目标股票的 6 位代码"
             "\n- `get_insider_transactions`：获取股东和内部人交易数据"
             "\n- `get_hot_stocks(curr_date)`：获取当日涨停股 + 题材归因 reason tags（同花顺独家）"
-            "\n- `get_northbound_flow(curr_date)`：获取北向资金实时分钟级流向（沪股通+深股通累计净买入）"
+            "\n- `get_northbound_flow(curr_date)`：获取北向相关接口返回；请求日期不是数据日期，未核实前不得直接称为当日累计净买入"
             "\n- `get_concept_blocks(ticker)`：获取个股所属概念板块/行业分类/地域（百度股市通，含当日涨幅）"
             "\n- `get_fund_flow(ticker, curr_date)`：获取个股主力/散户资金流向（分钟级实时+20日历史，超大单/大单/中单/小单净流入）"
             "\n- `get_dragon_tiger_board(ticker, curr_date)`：获取龙虎榜上榜记录、买卖席位明细（营业部）、机构参与情况"
@@ -62,11 +63,13 @@ def create_hot_money_tracker(llm):
             "\n\n撰写详细的资金面分析报告，给出资金面总体判断（主力流入/主力流出/资金博弈/无明显信号）和短期资金面信号研判（仅供研究参考，不构成投资建议）。报告末尾附 Markdown 表格汇总量价信号、资金动向和结论。"
             "\n\n📋 必采清单 — 以下数据点必须出现在报告中，无法获取时标注 [数据缺失: xxx]："
             "\n1. 近 5 日成交量变化趋势（放量/缩量/平稳）"
-            "\n2. 当日北向资金净流入金额（沪股通 + 深股通）"
+            "\n2. 北向相关数据的日期、字段定义、单位和核验状态；仅在确认口径后列沪股通与深股通净买入，否则保留缺失或待核验"
             "\n3. 个股主力资金净流入（超大单 + 大单）"
             "\n4. 所属概念板块及当日板块涨幅"
             "\n5. 当日是否上榜热门股及题材归因"
             "\n6. 资金面总体判断"
+            + "\n龙虎榜未上榜只能说明未检索到披露记录，不能推出游资未参与或日内做T；前十大股东排名变化不能推出清仓。行业和概念涨幅注明分类体系及日期，不混用不同板块样本。"
+            + ANALYST_REPORT_RULES
             + get_language_instruction()
         )
 

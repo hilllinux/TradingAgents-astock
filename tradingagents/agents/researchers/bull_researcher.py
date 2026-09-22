@@ -1,3 +1,4 @@
+from tradingagents.agents.utils.research_prompts import DEBATE_RULES
 
 
 def create_bull_researcher(llm):
@@ -20,9 +21,9 @@ def create_bull_researcher(llm):
 
 A-Share Bull Framework — prioritize these China-specific bullish catalysts:
 - Policy Tailwinds: Government subsidies, industry support policies (e.g. "专精特新", national strategic sectors), favorable regulatory signals from CSRC/State Council
-- Northbound Capital (北向资金): Sustained net inflow from Hong Kong Stock Connect indicates foreign institutional conviction
+- Northbound Capital (北向资金): Use only flows with verified dates and definitions; market-wide flows cannot establish buying in this stock
 - Hot Money Momentum (游资接力): Consecutive limit-ups with volume confirmation, strong theme attribution (reason tags), sector rotation just beginning
-- Valuation Growth Story: Use forward PE, PEG, and PE digestion timeframe (30x anchor for A-stock growth stocks) to argue the current premium is justified by earnings trajectory
+- Valuation Growth Story: Test the earnings assumptions against dated, comparable valuation samples; no universal PE anchor or presumed justified premium
 - Lockup Expiry Cleared: If major lockup periods have passed or insiders are NOT reducing, this removes a key overhang
 
 General bull points:
@@ -46,7 +47,8 @@ Last bear argument: {current_response}
 
 ⚠️ If the data quality assessment flags any report as low-confidence (grade C/D/F), reduce your reliance on that report and note the data limitation in your argument.
 
-Deliver a compelling bull argument that integrates A-share market dynamics. Refute the bear's concerns and demonstrate why the bull position holds stronger merit in the Chinese market context.
+Test whether the bullish case survives the strongest counterevidence; acknowledge when it does not.
+{DEBATE_RULES}
 """
 
         response = llm.invoke(prompt)

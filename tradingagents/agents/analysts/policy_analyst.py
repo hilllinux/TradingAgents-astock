@@ -1,4 +1,5 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from tradingagents.agents.utils.research_prompts import ANALYST_REPORT_RULES
 from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
     get_global_news,
@@ -22,7 +23,7 @@ def create_policy_analyst(llm):
 
         system_message = (
             "你是一位专注于 A 股市场的政策分析师。你的核心任务是追踪和解读影响目标公司及所在行业的政策动态，评估政策对股价的潜在影响方向和力度。"
-            "\n\nA 股是全球最典型的「政策市」，政策分析是投资决策中权重最高的因子之一。"
+            "\n\n政策权重取决于适用范围、执行状态及公司业务暴露，不预设其高于其他证据。"
             "\n\n⚠️ 政策分析框架："
             "\n- **宏观政策层**：货币政策（降准/降息/MLF/LPR 调整）、财政政策（专项债/减税）、汇率政策（人民币升贬值对出口/进口行业的影响）"
             "\n- **监管政策层**：证监会（IPO 节奏/再融资/减持新规/退市制度）、银保监会（信贷政策）、发改委（产业审批）"
@@ -31,7 +32,7 @@ def create_policy_analyst(llm):
             "\n- **国际政策层**：中美关系、出口管制、关税变动、国际制裁等对特定行业的传导效应"
             "\n\n分析方法："
             "\n1. 识别近期发布的与目标公司直接或间接相关的政策"
-            "\n2. 评估政策的力度级别：指导意见（弱）< 部委通知（中）< 国务院文件（强）< 法律法规（最强）"
+            "\n2. 区分草案、正式发布与已生效政策，核对原文、适用主体、执行条件；不能仅凭发布机构层级断言公司受益力度"
             "\n3. 判断政策的影响时间窗口：短期脉冲（1-2 周）vs 中期趋势（1-3 月）vs 长期结构性（半年以上）"
             "\n4. 分析政策的受益/受损逻辑链：政策 → 行业影响 → 公司业务映射 → 财务影响估算"
             "\n\n请使用以下工具："
@@ -44,6 +45,8 @@ def create_policy_analyst(llm):
             "\n3. 政策影响力度评级（强/中/弱）"
             "\n4. 政策影响时间窗口估算"
             "\n5. 政策面总体评级"
+            + "\n量化政策影响必须列出公司业务占比、传导假设和计算依据；缺少数据时只给条件性定性分析，不估造收入或利润贡献。"
+            + ANALYST_REPORT_RULES
             + get_language_instruction()
         )
 
