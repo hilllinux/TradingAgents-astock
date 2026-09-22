@@ -759,9 +759,13 @@ class TestLegacyRemoval:
         with pytest.raises(TypeError):
             create_portfolio_manager(mock_llm, memory=MagicMock())
 
-    def test_full_pipeline_no_regression(self, tmp_path):
+    def test_full_pipeline_no_regression(self, tmp_path, monkeypatch):
         """propagate() completes and stores the decision after the redesign."""
         import functools
+        from tradingagents.dataflows import missing_data
+
+        monkeypatch.setattr(missing_data, "_MISSING_DATA_TASKS_FILE", tmp_path / "missing.json")
+        monkeypatch.setattr(missing_data, "_MISSING_DATA_CACHE_DIR", tmp_path / "missing_cache")
 
         fake_state = {
             "final_trade_decision": "Rating: Buy\nBuy NVDA.",

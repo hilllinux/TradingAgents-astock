@@ -2,7 +2,7 @@ import json
 from types import SimpleNamespace
 
 from tradingagents.graph.trading_graph import TradingAgentsGraph
-from web.pdf_export import _collect_sections, generate_markdown
+from web.pdf_export import _collect_sections, _missing_data_warning, generate_markdown
 
 
 def test_audit_is_exported_before_reports_without_changing_them():
@@ -35,6 +35,33 @@ def test_complete_run_persists_quality_summary(tmp_path):
         "aggressive_history", "conservative_history", "neutral_history", "history", "judge_decision",
     )}
     state["data_quality_summary"] = "分段审核2/3，需人工复核"
+    state["missing_data_tasks"] = [{"id": "gap", "status": "active"}]
+    state["missing_data_complete"] = False
+    state["missing_data_requires_reanalysis"] = True
+    state["missing_data_updated_at"] = 123
     TradingAgentsGraph._log_state(graph, "2026-09-21", state)
     path = tmp_path / "002044/TradingAgentsStrategy_logs/full_states_log_2026-09-21.json"
-    assert json.loads(path.read_text())["data_quality_summary"] == state["data_quality_summary"]
+    saved = json.loads(path.read_text())
+    for field in (
+        "data_quality_summary", "missing_data_tasks", "missing_data_complete",
+        "missing_data_requires_reanalysis", "missing_data_updated_at",
+    ):
+        assert saved[field] == state[field]
+
+
+def test_export_keeps_both_missing_and_reanalysis_warnings():
+    state = {
+        "missing_data_tasks": [{"status": "active"}],
+        "missing_data_requires_reanalysis": True,
+        "data_quality_summary": "质量审核未通过",
+        "market_report": "旧分析内容",
+    }
+    warning = _missing_data_warning(state)
+    assert "仍有 1 个取数缺口" in warning
+    assert "尚未重新分析" in warning
+    markdown = generate_markdown(state, "002044", "2026-09-21", "HOLD")
+    assert markdown.index(warning) < markdown.index("质量审核未通过") < markdown.index("旧分析内容")
+
+
+def test_incomplete_flag_without_details_is_not_silently_ignored():
+    assert "缺失状态尚未核验" in _missing_data_warning({"missing_data_complete": False})

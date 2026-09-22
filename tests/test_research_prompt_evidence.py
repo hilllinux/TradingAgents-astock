@@ -229,6 +229,36 @@ def test_shared_rules_cover_report_audit_failures(required_rule):
     assert required_rule in EVIDENCE_RULES
 
 
+@pytest.mark.parametrize("factory,state_field", [
+    (create_bull_researcher, "investment_debate_state"),
+    (create_bear_researcher, "investment_debate_state"),
+    (create_aggressive_debator, "risk_debate_state"),
+    (create_conservative_debator, "risk_debate_state"),
+    (create_neutral_debator, "risk_debate_state"),
+])
+def test_compaction_preserves_original_evidence_and_audit(factory, state_field, research_state):
+    history = "\n" + "\n".join(
+        f"Bull Analyst: 第{turn}轮假设。待核验的第二句。" for turn in range(7)
+    )
+    research_state[state_field]["history"] = history
+    original = deepcopy(research_state)
+    llm = MagicMock()
+    llm.invoke.return_value = AIMessage(content="保留限制，暂不作方向判断。")
+
+    result = factory(llm)(research_state)
+    prompt = llm.invoke.call_args.args[0]
+
+    assert "[早期论点摘要]" in prompt
+    assert "第0轮假设。待核验的第二句。" not in prompt
+    assert prompt.count("第6轮假设。待核验的第二句。") == 1
+    assert DEBATE_RULES in prompt
+    assert research_state["data_quality_summary"] in prompt
+    for field in REPORT_FIELDS.values():
+        assert research_state[field] in prompt
+    assert result[state_field]["history"].startswith(history)
+    assert research_state == original
+
+
 def test_structured_fields_unchanged_and_descriptions_require_evidence():
     assert set(ResearchPlan.model_fields) == {"recommendation", "rationale", "strategic_actions"}
     assert set(TraderProposal.model_fields) == {"action", "reasoning"}

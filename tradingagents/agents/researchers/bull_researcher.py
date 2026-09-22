@@ -1,3 +1,4 @@
+from tradingagents.agents.utils.context import compact_history
 from tradingagents.agents.utils.research_prompts import DEBATE_RULES
 
 
@@ -7,7 +8,6 @@ def create_bull_researcher(llm):
         history = investment_debate_state.get("history", "")
         bull_history = investment_debate_state.get("bull_history", "")
 
-        current_response = investment_debate_state.get("current_response", "")
         market_research_report = state["market_report"]
         sentiment_report = state["sentiment_report"]
         news_report = state["news_report"]
@@ -42,8 +42,7 @@ Policy analysis report: {policy_report}
 Hot money / capital flow report: {hot_money_report}
 Lockup expiry / insider reduction report: {lockup_report}
 Data quality assessment: {data_quality_summary}
-Conversation history of the debate: {history}
-Last bear argument: {current_response}
+Conversation history of the debate: {compact_history(history)}
 
 ⚠️ If the data quality assessment flags any report as low-confidence (grade C/D/F), reduce your reliance on that report and note the data limitation in your argument.
 

@@ -33,15 +33,6 @@
 
 ---
 
-## Open to AI Roles in Shenzhen
-
-The author is open to AI roles in Shenzhen, particularly in **AI-powered investment research products, Forward Deployed Engineering (FDE), and AI consulting or solutions** at Tencent, other leading technology companies, and financial institutions.
-
-He combines experience in financial institutions with hands-on AI product development, building open-source market data tools and multi-agent systems with **17K+ GitHub stars**.
-
-Contact: [simonlin0423@gmail.com](mailto:simonlin0423@gmail.com)
-
----
 
 ## Why This Fork
 
@@ -314,11 +305,14 @@ All configuration is passed in through the `config` dictionary. Complete options
 | `llm_provider` | `"minimax"` | LLM provider: `minimax` / `deepseek` / `qwen` / `glm` / `openai` / `anthropic` / `google` / `xai` / `ollama` |
 | `deep_think_llm` | `"MiniMax-M2.7"` | Model used by the Research Manager + Portfolio Manager |
 | `quick_think_llm` | `"MiniMax-M2.7-highspeed"` | Model used by all Analysts / Researchers / Traders |
-| `backend_url` | `None` | Custom API endpoint / third-party relay gateway. Can be filled in via the Web UI sidebar or the `.env` file's `BACKEND_URL`; useful for accessing Claude / OpenAI from within China via a proxy |
+| `backend_url` | `None` | Custom API endpoint / third-party relay gateway. Can be filled in via the Web UI sidebar or the `.env` file's `BACKEND_URL`; useful for accessing Claude / OpenAI from within China via a proxy. **This is also how you reach a remote Ollama**: set `llm_provider` to `ollama` and `backend_url` to `http://<host>:11434/v1`; leaving it unset defaults to the local `http://localhost:11434/v1` (#61) |
 | `role_llms` | `{}` | **Optional**: give individual roles a different model (e.g. bull vs bear from different vendors). Empty = every role uses the quick/deep pair as before. See "Per-role models" below. #39 |
 | `max_tokens` | `None` | Max output tokens per reply. `None` = the provider's own default. **If a report stops mid-sentence, raise this first** (it is the output cap, not the context window); also settable via `TRADINGAGENTS_MAX_TOKENS`. #91 |
 | `output_language` | `"Chinese"` | Language for report output (internal debates are always in English) |
 | `market_lookback_days` | `None` | Lookback period in days for technical analysis (analysis range = start date → analysis date). Automatically calculated from the "data start date" in Web/CLI; `None` = model chooses (~30 days). #16 |
+| `llm_timeout` | `150` | Per-request LLM timeout in seconds, **applied to every provider that goes through a LangChain client** (`openai` / `anthropic` / `google` / `azure` and all OpenAI-compatible ones; the quota-fallback client carries it too). There used to be no timeout at all: all three LangChain wrappers (ChatOpenAI / ChatAnthropic / AzureChatOpenAI) pass `None` **explicitly** to the underlying SDK when no timeout is given, and to httpx that means "no timeout" — so a hung gateway wedged the analysis **forever** (process alive, no output, never returns). The `claude_agent_sdk` subscription override's **main path** does not go through a LangChain client; since v0.5.20 the client implements this same setting itself: the budget for one subscription call is this value x the number of model turns that call may take (the Agent SDK runs a whole tool loop inside a **single** call; a single-turn call gets exactly this value), and a timeout falls back along the same path as a rate limit. Raise it if your reasoning model regularly needs longer than this before its first token (#100) |
+| `llm_max_retries` | `3` | Application-level retry count, covering 408 / 409 / 429 / 5xx and connection errors (read timeouts included) — i.e. exactly what the OpenAI SDK used to retry. **Only applies to providers that go through the OpenAI-compatible client** (`openai` / `deepseek` / `qwen` / `glm` / `minimax` / `xai` / `openrouter` / `ollama` / `openai_compatible`): only their SDK-level retries are zeroed and handed to the application layer. Anthropic / Google / Azure keep their own SDK retries untouched |
+| `llm_retry_delay` | `5` | Initial retry backoff in seconds, doubling each time: 5s → 10s → 20s |
 | `max_debate_rounds` | `1` | Number of Bull vs Bear debate rounds |
 | `max_risk_discuss_rounds` | `1` | Number of risk three-way debate rounds |
 | `data_vendors` | All `"a_stock"` | Data vendor routing |
@@ -502,18 +496,6 @@ This project is based on the [TauricResearch/TradingAgents](https://github.com/T
 > - This project does not constitute any investment advice. Please consult a professional institution holding qualifications issued by the China Securities Regulatory Commission for investment decisions.
 > - The author assumes no responsibility for any investment losses incurred from using this tool.
 > - Stock markets are risky. Invest cautiously.
-
----
-
-## Support
-
-If this tool saved you time, a coffee is appreciated ☕
-
-<p align="center">
-  <a href="https://buymeacoffee.com/simonlin1212"><img src="./assets/bmc-qr.png" width="180" alt="Buy Me a Coffee"></a>
-</p>
-
-> Want a feature that isn't here? Open an [Issue](https://github.com/simonlin1212/tradingagents-astock/issues); sponsors' issues go first.
 
 ---
 

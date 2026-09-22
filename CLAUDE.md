@@ -6,7 +6,7 @@
 - **仓库**: https://github.com/simonlin1212/TradingAgents-astock
 - **协议**: Apache 2.0
 - **Python**: >=3.10
-- **当前版本**: 0.5.17（2026-09-05 发布）
+- **当前版本**: 0.5.20（2026-09-21）
   ⚠️ 改版本号时**三处要一起改**：`pyproject.toml` / `CHANGELOG.md` / 这一行。漏了这行会让后续 agent 和发版流程读到旧版本（`tests/test_version_consistency.py` 会拦）。
 
 ## 架构
@@ -99,7 +99,7 @@ deepseek-v4-flash 等模型在 tool call 时可能返回中文股票名而非 6 
 
 ### 测试
 **干净 clone（`pip install -e .` 不带 `[agentsdk]`）跑 `pytest tests/` 应当是
-361 passed / 13 skipped / **0 failed**。出现 failed 就是真回归。**
+512 passed / 13 skipped / **0 failed**（v0.5.20 实测，Python 3.13）。出现 failed 就是真回归。**
 需要可选依赖的用例用 `requires_sdk` 标记跳过——⚠️ **占位类型绝不要用 `Exception`
 基类**：`ClaudeSDKError` 曾被占位成 `Exception`，进 `_FALLBACK_ERRORS` 后让"订阅凭据
 失效不得降级到计费 provider"这条护栏彻底失效（v0.5.4 修）。
@@ -132,6 +132,21 @@ deepseek-v4-flash 等模型在 tool call 时可能返回中文股票名而非 6 
 ⚠️ **别改回手动调还原函数**——那样再加一条提前返回就会漏掉一处，而漏掉的后果是
 静默给用户留下一台死服务器。另外快照**必须在 `config.setup()` 之后**取，否则拿到的是
 模块默认空值，"还原"反而把用户真实配置抹成空。
+
+### 订阅主路径的超时：`_run_query` 是唯一入口（v0.5.20）
+
+`claude_agent_sdk` 不走 LangChain，`llm_timeout` 罩不到它，所以超时在
+`claude_agent_sdk_client.py` 里自己实现。**新增任何驱动 SDK 的调用路径，都要走
+`self._run_query(...)`，不要直接 `_run_async(self._query(...))`** —— 后者没有超时，
+等于给订阅路径重开「进程活着、零输出、永不返回」那个洞。
+
+预算 = `llm_timeout × 本次允许的模型轮数`（`_timeout_for`）。⚠️ **别改成整段固定
+`llm_timeout`**：Agent SDK 把整个工具循环跑在**一次** `.invoke()` 里（最多
+`_TOOL_MAX_TURNS` 轮），150 秒套上去会让分析师几乎每次都超时并降级到按 token 计费的
+provider —— 正是启用订阅要避免的事。`_timeout_for` 收的轮数必须和 `_build_options`
+里设的 `max_turns` 是同一个值。
+
+超时抛 `_SDKTimeout`，在 `_FALLBACK_ERRORS` 里（认证失败仍然不在，见该元组注释）。
 
 ### 待处理 PR
 - PR #18（hejingchi）：start_date 功能 + 主题切换 + Windows 字体。不建议直接 merge（与 v0.2.6 冲突），start_date 功能值得后续自行实现。

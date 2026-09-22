@@ -31,6 +31,22 @@ DEFAULT_CONFIG = {
         if os.environ.get("TRADINGAGENTS_MAX_TOKENS")
         else None
     ),
+    # 单次 LLM 请求超时（秒）。None = 用 provider/客户端默认值。设具体值可兜底
+    # 「请求挂起导致静默卡死」——超时后由客户端抛异常，而非进程 alive 但永久无输出。
+    # 经 _resilience_kwargs → 各 client 的 _PASSTHROUGH_KWARGS 透传，**对所有走
+    # LangChain 客户端的 provider 生效**（含订阅降级客户端）：langchain 的三个封装层
+    # 在没给超时时都把 None 显式传给底层 SDK，而 httpx 收到显式 None = 不设超时
+    #（"各家 SDK 自带 600 秒"只对裸 SDK 成立，本项目不走裸 SDK）。
+    # ⚠️ 例外：claude_agent_sdk 订阅覆盖的**主路径**（AgentSDKChatModel 直连 Agent SDK
+    # 子进程）不走该链路，暂不受此超时保护（已知缺口）。
+    "llm_timeout": 150,
+    # 应用层重试次数，覆盖 408 / 409 / 429 / 5xx 与连接类错误（含读超时）——即 OpenAI SDK
+    # 原本会重试的那一套。SDK 层恒 0 重试（仅限 OpenAI 兼容客户端，见 _resilience_kwargs），
+    # 由 openai_client.invoke 按下面的退避节奏重试，而非 SDK 的 0.5s 起步退避。
+    "llm_max_retries": 3,
+    # 重试的初始退避（秒），指数翻倍：第 1 次重试等 5s、第 2 次 10s、第 3 次 20s...
+    # 避免对刚报错的上游立即重试造成雪崩，也避免固定间隔在持续故障时反复撞击。
+    "llm_retry_delay": 5,
     # 可选：给单个角色单独指定模型（#39）。留空 = 全部角色沿用上面的
     # quick/deep 两档，行为与以前完全一致——大多数人只有一家模型，不需要碰这里。
     #

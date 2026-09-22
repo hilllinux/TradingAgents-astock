@@ -1,3 +1,4 @@
+from tradingagents.agents.utils.context import compact_history
 from tradingagents.agents.utils.research_prompts import DEBATE_RULES
 
 
@@ -6,9 +7,6 @@ def create_neutral_debator(llm):
         risk_debate_state = state["risk_debate_state"]
         history = risk_debate_state.get("history", "")
         neutral_history = risk_debate_state.get("neutral_history", "")
-
-        current_aggressive_response = risk_debate_state.get("current_aggressive_response", "")
-        current_conservative_response = risk_debate_state.get("current_conservative_response", "")
 
         market_research_report = state["market_report"]
         sentiment_report = state["sentiment_report"]
@@ -45,7 +43,7 @@ Policy Analysis Report: {policy_report}
 Hot Money / Capital Flow Report: {hot_money_report}
 Lockup Expiry / Insider Reduction Report: {lockup_report}
 Data quality assessment and unresolved issues: {state.get('data_quality_summary') or '未提供质量审核结果，不能视为审核通过。'}
-Conversation history: {history} Last aggressive argument: {current_aggressive_response} Last conservative argument: {current_conservative_response}. If no responses yet, present your own argument.
+Conversation history: {compact_history(history)} If no responses yet, present your own argument.
 
 Weigh evidence quality rather than averaging opposing opinions; acknowledge when neither case is established.
 {DEBATE_RULES}"""
